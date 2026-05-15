@@ -310,14 +310,23 @@ class HybridASVModel(nn.Module):
 # Section 2: Loss Functions
 # ============================================================
 
-def loss_adv(emb_adv: torch.Tensor, target_emb: torch.Tensor) -> torch.Tensor:
+def loss_adv(
+    emb_adv:     torch.Tensor,
+    target_emb:  torch.Tensor,
+    source_emb:  Optional[torch.Tensor] = None,
+    lambda2_eff: float = 0.0,
+    margin:      float = 0.35,
+) -> torch.Tensor:
     """
-    Targeted attack loss.
-    cos_sim(emb_adv, target_emb)를 최대화 = (1 - cos_sim)을 최소화.
-    두 임베딩이 가까워질수록 0에 수렴.
+    Combined targeted + untargeted adversarial loss.
+    pull: cos_sim(emb_adv, target)을 최대화 (targeted)
+    push: cos_sim(emb_adv, source)가 margin 이상이면 밀어냄 (untargeted, hinge)
     """
-    cos_sim = F.cosine_similarity(emb_adv, target_emb, dim=1)
-    return (1.0 - cos_sim).mean()
+    pull = (1.0 - F.cosine_similarity(emb_adv, target_emb, dim=1)).mean()
+    if source_emb is None or lambda2_eff == 0.0:
+        return pull
+    push = F.relu(F.cosine_similarity(emb_adv, source_emb, dim=1) - margin).mean()
+    return pull + lambda2_eff * push
 
 
 def loss_stft(
@@ -451,7 +460,10 @@ class AdversarialPerturbationOptimizer:
         lr        = cfg.get('lr',        1e-3)
         proj_type = cfg.get('proj_type', 'linf')
         verbose   = cfg.get('verbose',   True)
-        log_every = cfg.get('log_every', 50)
+        log_every    = cfg.get('log_every',    50)
+        lambda2      = cfg.get('lambda2',      0.5)
+        margin       = cfg.get('margin',       0.35)
+        warmup_steps = cfg.get('warmup_steps', 5)
 
         device = x.device
         x_orig  = x.detach()
@@ -464,6 +476,9 @@ class AdversarialPerturbationOptimizer:
         best_loss  = float('inf')
         best_delta = delta.detach().clone()
 
+        with torch.no_grad():
+            src_emb = self.model(x_orig)
+
         for i in range(n_iters):
             optimizer.zero_grad()
 
@@ -473,7 +488,8 @@ class AdversarialPerturbationOptimizer:
             emb_adv = self.model(x_adv)               # (1, 192)
 
             # --- Hybrid Loss ---
-            l_adv  = loss_adv(emb_adv, tgt_emb)
+            lambda2_eff = lambda2 * min(1.0, i / max(1, warmup_steps))
+            l_adv  = loss_adv(emb_adv, tgt_emb, src_emb, lambda2_eff, margin)
             l_stft = loss_stft(x_orig, x_adv)
             l_stoi = loss_stoi_approx(x_orig, x_adv)
             l_total = alpha * l_adv + beta * l_stft + gamma * l_stoi

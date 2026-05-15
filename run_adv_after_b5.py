@@ -37,15 +37,18 @@ B5_SUFFIX = "_asrbn_hifigan_bn_tdnnf_wav2vec2_vq_48_v1"
 ADV_SUFFIX = B5_SUFFIX + "_adv"
 
 DEFAULT_CONFIG = {
-    'eps':       0.005,
-    'alpha':     1.0,
-    'beta':      0.1,
-    'gamma':     0.05,
-    'n_iters':   20,
-    'lr':        5e-3,   # 300iter 1e-3 대비 수렴 속도 보완
-    'proj_type': 'linf',
-    'verbose':   True,
-    'log_every': 5,
+    'eps':          0.005,
+    'alpha':        1.0,
+    'beta':         0.1,
+    'gamma':        0.05,
+    'n_iters':      30,
+    'lr':           5e-3, #300iter 였을 때 1e-3
+    'proj_type':    'linf',
+    'verbose':      True,
+    'log_every':    5,
+    'lambda2':      0.5,
+    'margin':       0.35,
+    'warmup_steps': 5,
 }
 
 
